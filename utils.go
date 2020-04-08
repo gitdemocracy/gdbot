@@ -45,6 +45,8 @@ func validatePR(pr *github.PullRequest) error {
 
 		for _, good := range config.WhitelistedFileExtensions {
 			if !strings.HasSuffix(strings.ToLower(*file.Filename), strings.ToLower(good)) {
+				log.Printf("%s doesn't have %s, meta\n", *file.Filename, good)
+
 				return errors.New("meta")
 			}
 		}
