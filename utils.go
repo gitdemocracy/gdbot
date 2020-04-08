@@ -28,13 +28,21 @@ func countReactions(reactions []*github.Reaction, content string) int {
 	return count
 }
 
+func isGood(filename string, good []string) bool {
+	for _, s := range good {
+		if strings.HasSuffix(strings.ToLower(filename), strings.ToLower(s)) {
+			return true
+		}
+	}
+
+	return false
+}
+
 func validatePR(pr *github.PullRequest) error {
 	files, _, err := client.PullRequests.ListFiles(ctx, config.Owner, config.Repo, *pr.Number, nil)
 	checkError(err)
 
 	var reasons []string
-
-	meta := false
 
 	for _, file := range files {
 		for _, bad := range config.BlacklistedFiles {
@@ -43,16 +51,12 @@ func validatePR(pr *github.PullRequest) error {
 			}
 		}
 
-		for _, good := range config.WhitelistedFileExtensions {
-			if !strings.HasSuffix(strings.ToLower(*file.Filename), strings.ToLower(good)) {
-				meta = true
-			}
+		if !isGood(*file.Filename, config.WhitelistedFileExtensions) {
+			return errors.New("meta")
 		}
 	}
 
-	if meta {
-		return errors.New("meta")
-	} else if len(reasons) > 0 {
+	if len(reasons) > 0 {
 		return errors.New(strings.Join(reasons, "\n"))
 	}
 
