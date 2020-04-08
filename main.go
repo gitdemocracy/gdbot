@@ -57,7 +57,7 @@ func main() {
 			checkError(err)
 
 			for _, pull := range pulls {
-				if strings.Contains(strings.ToLower(*pull.Title), "meta") {
+				if prHasLabel("meta", pull) {
 					continue
 				}
 
@@ -160,6 +160,10 @@ func main() {
 						})
 						checkError(err)
 					} else {
+						if err.Error() == "meta" {
+							return
+						}
+
 						body := fmt.Sprintf("Hello!\n\nYour PR has failed verification for the following reasons:\n```\n%s\n```\nDon't worry though, if you fix the issue(s), you can make me reverify your PR by commenting ``reverify``.", err)
 
 						_, _, err = client.Issues.CreateComment(ctx, config.Owner, config.Repo, *event.PullRequest.Number, &github.IssueComment{

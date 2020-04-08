@@ -43,7 +43,13 @@ func validatePR(pr *github.PullRequest) error {
 
 		for _, bad := range config.WhitelistedFileExtensions {
 			if !strings.HasSuffix(strings.ToLower(*file.Filename), strings.ToLower(bad)) {
-				reasons = append(reasons, fmt.Sprintf("- Contains a file with an extension not on the whitelist: %s", *file.Filename))
+				_, _, err = client.Issues.AddLabelsToIssue(ctx, config.Owner, config.Repo, *pr.Number, []string{"meta"})
+				checkError(err)
+
+				_, _, err = client.Issues.AddAssignees(ctx, config.Owner, config.Repo, *pr.Number, config.MetaAssignees)
+				checkError(err)
+
+				return errors.New("meta")
 			}
 		}
 	}
@@ -75,6 +81,16 @@ func verifyIfLabelExists(name string) {
 
 func hasLabel(name string, issue *github.Issue) bool {
 	for _, label := range issue.Labels {
+		if *label.Name == name {
+			return true
+		}
+	}
+
+	return false
+}
+
+func prHasLabel(name string, pull *github.PullRequest) bool {
+	for _, label := range pull.Labels {
 		if *label.Name == name {
 			return true
 		}
