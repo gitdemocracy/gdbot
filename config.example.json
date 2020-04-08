@@ -1,0 +1,9 @@
+{
+    "token": "my github token",
+    "owner": "gitdemocracy",
+    "repo": "gitdemocracy",
+    "voting_period": 24,
+    "poll_interval": 15,
+    "listen_address": "127.0.0.1:1337",
+    "webhook_secret": "webhook secret"
+}
