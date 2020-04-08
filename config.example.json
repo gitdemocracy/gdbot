@@ -5,5 +5,14 @@
     "voting_period": 24,
     "poll_interval": 15,
     "listen_address": "127.0.0.1:1337",
-    "webhook_secret": "webhook secret"
+    "webhook_secret": "webhook secret",
+    "blacklisted_files": [
+        "README.md"
+    ],
+    "whitelisted_file_extensions": [
+        "txt"
+    ],
+    "meta_assignees": [
+        "ThatNerdyPikachu"
+    ]
 }

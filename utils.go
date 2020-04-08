@@ -1,7 +1,10 @@
 package main
 
 import (
+	"errors"
+	"fmt"
 	"log"
+	"strings"
 
 	"github.com/google/go-github/v30/github"
 )
@@ -23,4 +26,59 @@ func countReactions(reactions []*github.Reaction, content string) int {
 	}
 
 	return count
+}
+
+func validatePR(pr *github.PullRequest) error {
+	files, _, err := client.PullRequests.ListFiles(ctx, config.Owner, config.Repo, *pr.Number, nil)
+	checkError(err)
+
+	var reasons []string
+
+	for _, file := range files {
+		for _, bad := range config.BlacklistedFiles {
+			if strings.ToLower(*file.Filename) == strings.ToLower(bad) {
+				reasons = append(reasons, fmt.Sprintf("- Changes a blacklisted file: %s", bad))
+			}
+		}
+
+		for _, bad := range config.WhitelistedFileExtensions {
+			if !strings.HasSuffix(strings.ToLower(*file.Filename), strings.ToLower(bad)) {
+				reasons = append(reasons, fmt.Sprintf("- Contains a file with an extension not on the whitelist: %s", *file.Filename))
+			}
+		}
+	}
+
+	if len(reasons) != 0 {
+		return errors.New(strings.Join(reasons, "\n"))
+	}
+
+	return nil
+}
+
+func verifyIfLabelExists(name string) {
+	labels, _, err := client.Issues.ListLabels(ctx, config.Owner, config.Repo, nil)
+	checkError(err)
+
+	var l *github.Label
+
+	for _, label := range labels {
+		if *label.Name == name {
+			l = label
+		}
+	}
+
+	if l == nil {
+		log.Fatalf("You don't have a label named `%s` in your configured repo. Please create one.\n", name)
+		return
+	}
+}
+
+func hasLabel(name string, issue *github.Issue) bool {
+	for _, label := range issue.Labels {
+		if *label.Name == name {
+			return true
+		}
+	}
+
+	return false
 }

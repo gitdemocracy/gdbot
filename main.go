@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/go-github/v30/github"
@@ -15,13 +16,16 @@ import (
 
 var (
 	config struct {
-		Token         string `json:"token"`
-		Owner         string `json:"owner"`
-		Repo          string `json:"repo"`
-		VotingPeriod  int64  `json:"voting_period"` // in hours
-		PollInterval  int64  `json:"poll_interval"` // in minutes
-		ListenAddress string `json:"listen_address"`
-		WebhookSecret string `json:"webhook_secret"`
+		Token                     string   `json:"token"`
+		Owner                     string   `json:"owner"`
+		Repo                      string   `json:"repo"`
+		VotingPeriod              int64    `json:"voting_period"` // in hours
+		PollInterval              int64    `json:"poll_interval"` // in minutes
+		ListenAddress             string   `json:"listen_address"`
+		WebhookSecret             string   `json:"webhook_secret"`
+		BlacklistedFiles          []string `json:"blacklisted_files"`
+		WhitelistedFileExtensions []string `json:"whitelisted_file_extensions"`
+		MetaAssignees             []string `json:"meta_assignees"`
 	}
 	client *github.Client
 	ctx    = context.Background()
@@ -40,6 +44,9 @@ func main() {
 		&oauth2.Token{AccessToken: config.Token},
 	)))
 
+	verifyIfLabelExists("meta")
+	verifyIfLabelExists("pending-reverify")
+
 	go func() {
 		for {
 			log.Printf("polling github...\n")
@@ -50,6 +57,10 @@ func main() {
 			checkError(err)
 
 			for _, pull := range pulls {
+				if strings.Contains(strings.ToLower(*pull.Title), "meta") {
+					continue
+				}
+
 				if time.Since(*pull.CreatedAt) >= time.Hour*time.Duration(config.VotingPeriod) {
 					reactions, _, err := client.Reactions.ListIssueReactions(ctx, config.Owner, config.Repo, *pull.Number, nil)
 					checkError(err)
@@ -100,6 +111,11 @@ func main() {
 							Body: &body,
 						})
 						checkError(err)
+
+						_, _, err = client.PullRequests.Edit(ctx, config.Owner, config.Repo, *pull.Number, &github.PullRequest{
+							State: &closed,
+						})
+						checkError(err)
 					}
 				}
 			}
@@ -121,18 +137,83 @@ func main() {
 		switch event := event.(type) {
 		case *github.PullRequestEvent:
 			if *event.Action == "opened" {
-				_, _, err = client.Reactions.CreateIssueReaction(ctx, config.Owner, config.Repo, *event.PullRequest.Number, "+1")
+				if strings.HasPrefix(strings.ToLower(*event.PullRequest.Title), "meta") {
+					_, _, err = client.Issues.AddLabelsToIssue(ctx, config.Owner, config.Repo, *event.PullRequest.Number, []string{"meta"})
+					checkError(err)
+
+					_, _, err = client.Issues.AddAssignees(ctx, config.Owner, config.Repo, *event.PullRequest.Number, config.MetaAssignees)
+					checkError(err)
+				} else {
+					err = validatePR(event.PullRequest)
+
+					if err == nil {
+						_, _, err = client.Reactions.CreateIssueReaction(ctx, config.Owner, config.Repo, *event.PullRequest.Number, "+1")
+						checkError(err)
+
+						_, _, err = client.Reactions.CreateIssueReaction(ctx, config.Owner, config.Repo, *event.PullRequest.Number, "-1")
+						checkError(err)
+
+						body := fmt.Sprintf("This issue will be in voting until (roughly) ``%s``.", time.Now().Add(time.Hour*time.Duration(config.VotingPeriod)).Format(time.RFC1123))
+
+						_, _, err = client.Issues.CreateComment(ctx, config.Owner, config.Repo, *event.PullRequest.Number, &github.IssueComment{
+							Body: &body,
+						})
+						checkError(err)
+					} else {
+						body := fmt.Sprintf("Hello!\n\nYour PR has failed verification for the following reasons:\n```\n%s\n```\nDon't worry though, if you fix the issue(s), you can make me reverify your PR by commenting ``reverify``.", err)
+
+						_, _, err = client.Issues.CreateComment(ctx, config.Owner, config.Repo, *event.PullRequest.Number, &github.IssueComment{
+							Body: &body,
+						})
+						checkError(err)
+
+						_, _, err = client.Issues.AddLabelsToIssue(ctx, config.Owner, config.Repo, *event.PullRequest.Number, []string{"pending-reverify"})
+						checkError(err)
+					}
+				}
+			}
+		case *github.IssueCommentEvent:
+			if hasLabel("pending-reverify", event.Issue) && *event.Comment.User.ID == *event.Issue.User.ID && strings.ToLower(*event.Comment.Body) == "reverify" {
+				pull, _, err := client.PullRequests.Get(ctx, config.Owner, config.Repo, *event.Issue.Number)
 				checkError(err)
 
-				_, _, err = client.Reactions.CreateIssueReaction(ctx, config.Owner, config.Repo, *event.PullRequest.Number, "-1")
-				checkError(err)
+				err = validatePR(pull)
 
-				body := fmt.Sprintf("This issue will be in voting until (roughly) ``%s``.", time.Now().Format(time.RFC1123))
+				if err == nil {
+					_, err = client.Issues.RemoveLabelForIssue(ctx, config.Owner, config.Repo, *pull.Number, "pending-reverify")
+					checkError(err)
 
-				_, _, err = client.Issues.CreateComment(ctx, config.Owner, config.Repo, *event.PullRequest.Number, &github.IssueComment{
-					Body: &body,
-				})
-				checkError(err)
+					_, _, err = client.Reactions.CreateIssueReaction(ctx, config.Owner, config.Repo, *pull.Number, "+1")
+					checkError(err)
+
+					_, _, err = client.Reactions.CreateIssueReaction(ctx, config.Owner, config.Repo, *pull.Number, "-1")
+					checkError(err)
+
+					body := fmt.Sprintf("This issue will be in voting until (roughly) ``%s``.", time.Now().Add(time.Hour*time.Duration(config.VotingPeriod)).Format(time.RFC1123))
+
+					_, _, err = client.Issues.CreateComment(ctx, config.Owner, config.Repo, *pull.Number, &github.IssueComment{
+						Body: &body,
+					})
+					checkError(err)
+				} else {
+					body := fmt.Sprintf("Hello!\n\nYour PR has failed reverification for the following reasons:\n```\n%s\n```\nDue to the fact that you've already opened a PR with issue(s), and issue(s) are still present, I have closed and locked this PR. Feel free to open another, though!", err)
+
+					_, _, err = client.Issues.CreateComment(ctx, config.Owner, config.Repo, *pull.Number, &github.IssueComment{
+						Body: &body,
+					})
+					checkError(err)
+
+					_, err = client.Issues.RemoveLabelForIssue(ctx, config.Owner, config.Repo, *pull.Number, "pending-reverify")
+					checkError(err)
+
+					_, _, err = client.PullRequests.Edit(ctx, config.Owner, config.Repo, *pull.Number, &github.PullRequest{
+						State: &closed,
+					})
+					checkError(err)
+
+					_, err = client.Issues.Lock(ctx, config.Owner, config.Repo, *pull.Number, nil)
+					checkError(err)
+				}
 			}
 		}
 	}))
