@@ -32,6 +32,8 @@ func validatePR(pr *github.PullRequest) error {
 	files, _, err := client.PullRequests.ListFiles(ctx, config.Owner, config.Repo, *pr.Number, nil)
 	checkError(err)
 
+	log.Printf("%v\n", files)
+
 	var reasons []string
 
 	for _, file := range files {
