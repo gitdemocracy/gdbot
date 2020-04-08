@@ -100,3 +100,42 @@ func prHasLabel(name string, pull *github.PullRequest) bool {
 
 	return false
 }
+
+func addVoteReactions(number int) {
+	_, _, err := client.Reactions.CreateIssueReaction(ctx, config.Owner, config.Repo, number, "+1")
+	checkError(err)
+
+	_, _, err = client.Reactions.CreateIssueReaction(ctx, config.Owner, config.Repo, number, "-1")
+	checkError(err)
+}
+
+func createComment(number int, body string) {
+	_, _, err := client.Issues.CreateComment(ctx, config.Owner, config.Repo, number, &github.IssueComment{
+		Body: &body,
+	})
+	checkError(err)
+}
+
+func addLabels(number int, labels ...string) {
+	_, _, err := client.Issues.AddLabelsToIssue(ctx, config.Owner, config.Repo, number, labels)
+	checkError(err)
+}
+
+func removeLabels(number int, labels ...string) {
+	for _, label := range labels {
+		_, err := client.Issues.RemoveLabelForIssue(ctx, config.Owner, config.Repo, number, label)
+		checkError(err)
+	}
+}
+
+func addAssignees(number int, assignees ...string) {
+	_, _, err := client.Issues.AddAssignees(ctx, config.Owner, config.Repo, number, assignees)
+	checkError(err)
+}
+
+func setPRState(number int, state string) {
+	_, _, err := client.PullRequests.Edit(ctx, config.Owner, config.Repo, number, &github.PullRequest{
+		State: &state,
+	})
+	checkError(err)
+}

@@ -44,7 +44,7 @@ func main() {
 		&oauth2.Token{AccessToken: config.Token},
 	)))
 
-	verifyIfLabelExists("meta")
+	verifyIfLabelExists("manual review required for merge")
 	verifyIfLabelExists("pending-reverify")
 
 	go func() {
@@ -57,7 +57,7 @@ func main() {
 			checkError(err)
 
 			for _, pull := range pulls {
-				if prHasLabel("meta", pull) {
+				if prHasLabel("manual review required for merge", pull) {
 					continue
 				}
 
@@ -75,29 +75,16 @@ func main() {
 					if yes > no {
 						log.Printf("Merging...\n")
 
-						body := fmt.Sprintf("%d:%d, merging...\n", yes, no)
-
-						_, _, err = client.Issues.CreateComment(ctx, config.Owner, config.Repo, *pull.Number, &github.IssueComment{
-							Body: &body,
-						})
-						checkError(err)
+						createComment(*pull.Number, fmt.Sprintf("%d:%d, merging...\n", yes, no))
 
 						_, _, err = client.PullRequests.Merge(ctx, config.Owner, config.Repo, *pull.Number, *pull.Title, nil)
 						checkError(err)
 					} else if yes < no {
 						log.Printf("Closing...\n")
 
-						body := fmt.Sprintf("%d:%d, closing...\n", yes, no)
+						createComment(*pull.Number, fmt.Sprintf("%d:%d, closing...\n", yes, no))
 
-						_, _, err = client.Issues.CreateComment(ctx, config.Owner, config.Repo, *pull.Number, &github.IssueComment{
-							Body: &body,
-						})
-						checkError(err)
-
-						_, _, err = client.PullRequests.Edit(ctx, config.Owner, config.Repo, *pull.Number, &github.PullRequest{
-							State: &closed,
-						})
-						checkError(err)
+						setPRState(*pull.Number, "closed")
 					} else {
 						var body string
 
@@ -107,15 +94,9 @@ func main() {
 							body = fmt.Sprintf("Tie (%d:%d), closing...", yes, no)
 						}
 
-						_, _, err = client.Issues.CreateComment(ctx, config.Owner, config.Repo, *pull.Number, &github.IssueComment{
-							Body: &body,
-						})
-						checkError(err)
+						createComment(*pull.Number, body)
 
-						_, _, err = client.PullRequests.Edit(ctx, config.Owner, config.Repo, *pull.Number, &github.PullRequest{
-							State: &closed,
-						})
-						checkError(err)
+						setPRState(*pull.Number, "closed")
 					}
 				}
 			}
@@ -136,46 +117,25 @@ func main() {
 
 		switch event := event.(type) {
 		case *github.PullRequestEvent:
+			log.Printf("%s\n", *event.Action)
+
 			if *event.Action == "opened" {
 				if strings.HasPrefix(strings.ToLower(*event.PullRequest.Title), "meta") {
-					_, _, err = client.Issues.AddLabelsToIssue(ctx, config.Owner, config.Repo, *event.PullRequest.Number, []string{"meta"})
-					checkError(err)
-
-					_, _, err = client.Issues.AddAssignees(ctx, config.Owner, config.Repo, *event.PullRequest.Number, config.MetaAssignees)
-					checkError(err)
+					addLabels(*event.PullRequest.Number, "manual review required for merge")
+					addAssignees(*event.PullRequest.Number, config.MetaAssignees...)
 				} else {
 					err = validatePR(event.PullRequest)
 
 					if err == nil {
-						_, _, err = client.Reactions.CreateIssueReaction(ctx, config.Owner, config.Repo, *event.PullRequest.Number, "+1")
-						checkError(err)
-
-						_, _, err = client.Reactions.CreateIssueReaction(ctx, config.Owner, config.Repo, *event.PullRequest.Number, "-1")
-						checkError(err)
-
-						body := fmt.Sprintf("This issue will be in voting until (roughly) ``%s``.", time.Now().Add(time.Hour*time.Duration(config.VotingPeriod)).Format(time.RFC1123))
-
-						_, _, err = client.Issues.CreateComment(ctx, config.Owner, config.Repo, *event.PullRequest.Number, &github.IssueComment{
-							Body: &body,
-						})
-						checkError(err)
+						addVoteReactions(*event.PullRequest.Number)
+						createComment(*event.PullRequest.Number, fmt.Sprintf("This issue will be in voting until (roughly) ``%s``.", time.Now().Add(time.Hour*time.Duration(config.VotingPeriod)).Format(time.RFC1123)))
 					} else {
 						if err.Error() == "meta" {
-							_, _, err = client.Issues.AddLabelsToIssue(ctx, config.Owner, config.Repo, *event.PullRequest.Number, []string{"meta"})
-							checkError(err)
-
-							_, _, err = client.Issues.AddAssignees(ctx, config.Owner, config.Repo, *event.PullRequest.Number, config.MetaAssignees)
-							checkError(err)
+							addLabels(*event.PullRequest.Number, "manual review required for merge")
+							addAssignees(*event.PullRequest.Number, config.MetaAssignees...)
 						} else {
-							body := fmt.Sprintf("Hello!\n\nYour PR has failed verification for the following reasons:\n```\n%s\n```\nDon't worry though, if you fix the issue(s), you can make me reverify your PR by commenting ``reverify``.", err)
-
-							_, _, err = client.Issues.CreateComment(ctx, config.Owner, config.Repo, *event.PullRequest.Number, &github.IssueComment{
-								Body: &body,
-							})
-							checkError(err)
-
-							_, _, err = client.Issues.AddLabelsToIssue(ctx, config.Owner, config.Repo, *event.PullRequest.Number, []string{"pending-reverify"})
-							checkError(err)
+							createComment(*event.PullRequest.Number, fmt.Sprintf("Hello!\n\nYour PR has failed verification for the following reasons:\n```\n%s\n```\nDon't worry though, if you fix the issue(s), you can make me reverify your PR by commenting ``reverify``.", err))
+							addLabels(*event.PullRequest.Number, "pending-reverify")
 						}
 					}
 				}
@@ -188,36 +148,16 @@ func main() {
 				err = validatePR(pull)
 
 				if err == nil {
-					_, err = client.Issues.RemoveLabelForIssue(ctx, config.Owner, config.Repo, *pull.Number, "pending-reverify")
-					checkError(err)
+					removeLabels(*pull.Number, "pending-reverify")
+					addVoteReactions(*pull.Number)
 
-					_, _, err = client.Reactions.CreateIssueReaction(ctx, config.Owner, config.Repo, *pull.Number, "+1")
-					checkError(err)
-
-					_, _, err = client.Reactions.CreateIssueReaction(ctx, config.Owner, config.Repo, *pull.Number, "-1")
-					checkError(err)
-
-					body := fmt.Sprintf("This issue will be in voting until (roughly) ``%s``.", time.Now().Add(time.Hour*time.Duration(config.VotingPeriod)).Format(time.RFC1123))
-
-					_, _, err = client.Issues.CreateComment(ctx, config.Owner, config.Repo, *pull.Number, &github.IssueComment{
-						Body: &body,
-					})
-					checkError(err)
+					createComment(*pull.Number, fmt.Sprintf("This issue will be in voting until (roughly) ``%s``.", time.Now().Add(time.Hour*time.Duration(config.VotingPeriod)).Format(time.RFC1123)))
 				} else {
-					body := fmt.Sprintf("Hello!\n\nYour PR has failed reverification for the following reasons:\n```\n%s\n```\nDue to the fact that you've already opened a PR with issue(s), and issue(s) are still present, I have closed and locked this PR. Feel free to open another, though!", err)
+					createComment(*pull.Number, fmt.Sprintf("Hello!\n\nYour PR has failed reverification for the following reasons:\n```\n%s\n```\nDue to the fact that you've already opened a PR with issue(s), and issue(s) are still present, I have closed and locked this PR. Feel free to open another, though!", err))
 
-					_, _, err = client.Issues.CreateComment(ctx, config.Owner, config.Repo, *pull.Number, &github.IssueComment{
-						Body: &body,
-					})
-					checkError(err)
+					removeLabels(*pull.Number, "pending-reverify")
 
-					_, err = client.Issues.RemoveLabelForIssue(ctx, config.Owner, config.Repo, *pull.Number, "pending-reverify")
-					checkError(err)
-
-					_, _, err = client.PullRequests.Edit(ctx, config.Owner, config.Repo, *pull.Number, &github.PullRequest{
-						State: &closed,
-					})
-					checkError(err)
+					setPRState(*pull.Number, "closed")
 
 					_, err = client.Issues.Lock(ctx, config.Owner, config.Repo, *pull.Number, nil)
 					checkError(err)
