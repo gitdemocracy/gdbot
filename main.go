@@ -29,8 +29,6 @@ var (
 	}
 	client *github.Client
 	ctx    = context.Background()
-	opened = "opened"
-	closed = "closed"
 )
 
 func main() {
@@ -139,6 +137,11 @@ func main() {
 						}
 					}
 				}
+			} else if *event.Action == "synchronize" {
+				_, err := client.Issues.RemoveLabelsForIssue(ctx, config.Owner, config.Repo, *event.PullRequest.Number)
+				checkError(err)
+
+				addLabels(*event.PullRequest.Number, "manual review required for merge")
 			}
 		case *github.IssueCommentEvent:
 			if hasLabel("pending-reverify", event.Issue) && *event.Comment.User.ID == *event.Issue.User.ID && strings.ToLower(*event.Comment.Body) == "reverify" {
