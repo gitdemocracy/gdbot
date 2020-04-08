@@ -115,8 +115,6 @@ func main() {
 
 		switch event := event.(type) {
 		case *github.PullRequestEvent:
-			log.Printf("%s\n", *event.Action)
-
 			if *event.Action == "opened" {
 				if strings.HasPrefix(strings.ToLower(*event.PullRequest.Title), "meta") {
 					addLabels(*event.PullRequest.Number, "manual review required for merge")
