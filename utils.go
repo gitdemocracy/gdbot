@@ -41,20 +41,14 @@ func validatePR(pr *github.PullRequest) error {
 			}
 		}
 
-		for _, bad := range config.WhitelistedFileExtensions {
-			if !strings.HasSuffix(strings.ToLower(*file.Filename), strings.ToLower(bad)) {
-				_, _, err = client.Issues.AddLabelsToIssue(ctx, config.Owner, config.Repo, *pr.Number, []string{"meta"})
-				checkError(err)
-
-				_, _, err = client.Issues.AddAssignees(ctx, config.Owner, config.Repo, *pr.Number, config.MetaAssignees)
-				checkError(err)
-
+		for _, good := range config.WhitelistedFileExtensions {
+			if !strings.HasSuffix(strings.ToLower(*file.Filename), strings.ToLower(good)) {
 				return errors.New("meta")
 			}
 		}
 	}
 
-	if len(reasons) != 0 {
+	if len(reasons) > 0 {
 		return errors.New(strings.Join(reasons, "\n"))
 	}
 
