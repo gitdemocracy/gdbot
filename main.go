@@ -55,7 +55,7 @@ func main() {
 			checkError(err)
 
 			for _, pull := range pulls {
-				if prHasLabel("manual review required for merge", pull) {
+				if prHasLabel("manual review required for merge", pull) || prHasLabel("pending-reverify", pull) {
 					continue
 				}
 
