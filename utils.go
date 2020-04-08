@@ -32,9 +32,9 @@ func validatePR(pr *github.PullRequest) error {
 	files, _, err := client.PullRequests.ListFiles(ctx, config.Owner, config.Repo, *pr.Number, nil)
 	checkError(err)
 
-	log.Printf("%v\n", files)
-
 	var reasons []string
+
+	meta := false
 
 	for _, file := range files {
 		for _, bad := range config.BlacklistedFiles {
@@ -44,15 +44,15 @@ func validatePR(pr *github.PullRequest) error {
 		}
 
 		for _, good := range config.WhitelistedFileExtensions {
-			if !strings.HasSuffix(strings.ToLower(*file.Filename), strings.ToLower(good)) {
-				log.Printf("%s doesn't have %s, meta\n", *file.Filename, good)
-
-				return errors.New("meta")
+			if strings.HasSuffix(strings.ToLower(*file.Filename), strings.ToLower(good)) {
+				meta = true
 			}
 		}
 	}
 
-	if len(reasons) > 0 {
+	if meta {
+		return errors.New("meta")
+	} else if len(reasons) > 0 {
 		return errors.New(strings.Join(reasons, "\n"))
 	}
 
