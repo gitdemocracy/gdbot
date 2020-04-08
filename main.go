@@ -13,6 +13,12 @@ import (
 )
 
 var (
+	config struct {
+		Token        string `json:"token"`
+		Owner        string `json:"owner"`
+		Repo         string `json:"repo"`
+		VotingPeriod int64  `json:"voting_period"` // (in hours, for now.)
+	}
 	client *github.Client
 	ctx    = context.Background()
 	closed = "closed"
